@@ -303,7 +303,27 @@ class DataGenerator(object):
       self._slide_h = 0
       self._slide_w = 0
       self._slide_step = slide_step
-  
+    elif self._method == 'grid':
+      self._slide_step = slide_step
+      self._sample = np.empty([
+          (self._data_shape[0]/self._slide_step)*
+          (self._data_shape[1]/self._slide_step)*
+          (self._data_shape[2]/self._slide_step)]
+            + self._output_shape[1:])
+      i = 0
+      grid_index = [0,0,0]
+      grid_index[0] = self._data_shape[0]-self._output_shape[1]
+      grid_index[1] = self._data_shape[1]-self._output_shape[2]
+      grid_index[2] = self._data_shape[2]-self._output_shape[3]
+      for d in range(0, grid_index[0], self._slide_step):
+        for h in range(0, grid_index[1], self._slide_step):
+          for w in range(0, grid_index[2], self._slide_step):
+            self._sample[i,:,:,:,0] = self.volume[
+                d:d+self._output_shape[1],
+                h:h+self._output_shape[2],
+                w:w+self._output_shape[3]]
+            i+=1
+      
   def gen(self):
     sample = np.empty(self.output_shape)
 
@@ -338,6 +358,11 @@ class DataGenerator(object):
           self._slide_d = 0
           self._slide_h = 0
           self._slide_w = 0
+      np.random.shuffle(sample)
+
+    elif self._method == 'grid':
+      np.random.shuffle(self._sample)
+      sample = self._sample[:self._output_shape[0],:,:,:,:]
     return sample
 
   def crop(self, indices):
