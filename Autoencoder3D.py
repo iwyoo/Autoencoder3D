@@ -72,29 +72,31 @@ class LinearAutoencoder3D(BasicAutoencoder3D):
     curr = tf.reshape(self._x, [input_shape[0], -1])
     
     """ Encoder """
-    self.lin_W1 = tf.Variable(tf.random_normal([t_dim, z_dim]))
-    self.lin_b1 = tf.Variable(tf.fill([z_dim], 0.01), name="lin_b1")
-    curr = tf.nn.xw_plus_b(curr, self.lin_W1, self.lin_b1)
-    curr = activation(curr)
+    self.enc_W = tf.Variable(tf.random_normal([t_dim, z_dim]), name="enc_W")
+    self.enc_b = tf.Variable(tf.fill([z_dim], 0.01), name="enc_b")
+    curr = tf.nn.xw_plus_b(curr, self.enc_W, self.enc_b)
+    if activation :
+      curr = activation(curr)
 
     """ Latent code """
     self._z = curr
     self.z_shape = self._z.get_shape().as_list()
 
     """ Decoder """
-    self.lin_W2 = tf.Variable(tf.random_normal([z_dim, t_dim]))
-    self.lin_b2 = tf.Variable(tf.fill([t_dim], 0.01), name="lin_b1")
-    curr = tf.nn.xw_plus_b(curr, self.lin_W2, self.lin_b2)
-    curr = activation(curr)
-
-    self._var_list = [self.lin_W1, self.lin_b1, self.lin_W2, self.lin_b2]
+    self.dec_W = tf.Variable(tf.random_normal([z_dim, t_dim]), name="dec_W")
+    self.dec_b = tf.Variable(tf.fill([t_dim], 0.01), name="dec_b")
+    curr = tf.nn.xw_plus_b(curr, self.dec_W, self.dec_b)
+    if activation :
+      curr = activation(curr)
 
     # Future : self.init() in BasicAutoencoder3D
     self._y = tf.reshape(curr, input_shape)
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    self._loss = self._reconstruct_loss # More
+    self._regularize_loss = tf.nn.l2_loss(self.enc_W) + tf.nn.l2_loss(self.dec_W)
+    self._loss = self._reconstruct_loss + 0.0001 * self._regularize_loss # More
     self._train = tf.train.AdamOptimizer().minimize(self._loss)
 
+    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
     self._saver = tf.train.Saver(self._var_list)
     self._sess.run(tf.initialize_variables(self._var_list))
 
@@ -152,14 +154,14 @@ class ConvAutoencoder3D(BasicAutoencoder3D):
     if activation: 
       curr = activation(curr)
 
-    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
-
     # Future : self.init(self._var_list) in BasicAutoencoder3D
     self._y = curr
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    self._loss = self._reconstruct_loss # More
+    self._regularize_loss = tf.nn.l2_loss(self.enc_W) + tf.nn.l2_loss(self.dec_W)
+    self._loss = self._reconstruct_loss + 0.0001 * self._regularize_loss # More
     self._train = tf.train.AdamOptimizer().minimize(self._loss)
 
+    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
     self._saver = tf.train.Saver(self._var_list)
     self._sess.run(tf.initialize_variables(self._var_list))
 
@@ -168,7 +170,7 @@ class StackedConvAutoencoder3D(object):
     """ 
     Args:
       sess - tf session.
-      ae_list - a list of ConvAutoencoder3D objects.
+      ae_list - a list of Conv/Linear-Autoencoder3D objects.
     """
     self._sess = sess
     self._ae_list = ae_list
@@ -186,7 +188,7 @@ class StackedConvAutoencoder3D(object):
           curr = ae.activation(curr)
       elif ae.__class__ is LinearAutoencoder3D:
         curr = tf.reshape(curr, [ae.input_shape[0], -1])
-        curr = tf.nn.xw_plus_b(curr, ae.lin_W1, ae.lin_b1)
+        curr = tf.nn.xw_plus_b(curr, ae.enc_W, ae.enc_b)
         if ae.activation:
           curr = ae.activation(curr)
 
@@ -204,7 +206,7 @@ class StackedConvAutoencoder3D(object):
         if ae.activation:
           curr = ae.activation(curr)
       elif ae.__class__ is LinearAutoencoder3D:
-        curr = tf.nn.xw_plus_b(curr, ae.lin_W2, ae.lin_b2)
+        curr = tf.nn.xw_plus_b(curr, ae.dec_W, ae.dec_b)
         if ae.activation:
           curr = ae.activation(curr)
         curr = tf.reshape(curr, ae.input_shape)
@@ -230,18 +232,37 @@ class StackedConvAutoencoder3D(object):
       if os.path.exists(file_path):
         ae.load(file_path) 
       else :
-        for i in range(iteration):
-          data = data_generator.gen()
-          data = self._get_nth_latent(l, data)
-          loss = ae.train(data)
-          print "{} layer / {} iter / {}".format(l+1, i+1, loss)
+        if iteration > 0 :
+          for i in range(iteration):
+            data = data_generator.gen()
+            data = self._get_nth_latent(l, data)
+            loss = ae.train(data)
+            print "{} layer / {} iter / {}".format(l+1, i+1, loss)
+        else :
+          i = 0
+          loss = 1.
+          while loss > 0.003:
+            data = data_generator.gen()
+            data = self._get_nth_latent(l, data)
+            loss = ae.train(data)
+            print "{} layer / {} iter / {}".format(l+1, i+1, loss)
+            i += 1
         ae.save(file_path)
 
   def fine_tuning(self, dg, iteration=10000):
-    for i in range(iteration):
-      data = dg.gen()
-      _, loss = self._sess.run([self._train, self._loss], {self._x:data})
-      print "{} iter / {}".format(i+1, loss)
+    if iteration > 0 :
+      for i in range(iteration):
+        data = dg.gen()
+        _, loss = self._sess.run([self._train, self._loss], {self._x:data})
+        print "{} iter / {}".format(i+1, loss)
+    else :
+      i = 0
+      loss = 1.
+      while loss > 0.003:
+        data = dg.gen()
+        _, loss = self._sess.run([self._train, self._loss], {self._x:data})
+        print "{} iter / {}".format(i+1, loss)
+        i += 1
       
     self.save()
 
@@ -378,7 +399,6 @@ class DataGenerator(object):
           index[1]:index[1]+self.output_shape[2],
           index[2]:index[2]+self.output_shape[3]]
     return sample
-
 
   @property
   def output_shape(self):
