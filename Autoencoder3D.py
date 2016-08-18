@@ -4,9 +4,27 @@ import tensorflow as tf
 
 #Future : Denoising option
 
+# constants
+reg_weight = 0.01
+
 class BasicAutoencoder3D(object):
   """ 
     The super class of LinearAutoencoder3D and ConvAutoencoder3D.
+
+    Members :
+      sess - tf session.
+      enc_W - Weight kernel / matrix of encoder.
+      dec_W - Weight kernel / matrix of decoder.
+      enc_b - bias of encoder.
+      dec_b - bias of encoder.
+      _loss - loss function.
+      _train - train op.
+      _x - input place holder
+      _y - output (reconstruction result)
+      _z - latent code
+      z_shape - shape of latent variable `_z`
+      var_list - a list of variables
+      _saver - tf Saver to save `var_list`.
 
     Methods :
       train - Train one step and return loss value.
@@ -17,6 +35,7 @@ class BasicAutoencoder3D(object):
                 its latent variable shape (z_shape).
       sub_linear - Construct lowrank LinearAutoencdoer3D based on
                 its latent variable shape (z_shape).
+      regularizer - Return regularizer term.
   """
   def train(self, data):
     _, loss = self._sess.run([self._train, self._loss], {self._x:data})
@@ -42,7 +61,26 @@ class BasicAutoencoder3D(object):
   def sub_linear(self, z_dim, activation=None, keep_prob=None):
     return LinearAutoencoder3D(
       self._sess, self.z_shape, z_dim, activation, keep_prob)
-  
+
+  def regularizer(self):
+    enc_W_shape = self.enc_W.get_shape().as_list()
+    enc_b_shape = self.enc_b.get_shape().as_list()
+    dec_W_shape = self.dec_W.get_shape().as_list()
+    dec_b_shape = self.dec_b.get_shape().as_list()
+    return (tf.nn.l2_loss(self.enc_W) / np.prod(enc_W_shape)
+        + tf.nn.l2_loss(self.enc_b) / np.prod(enc_b_shape)
+        + tf.nn.l2_loss(self.dec_W) / np.prod(dec_W_shape)
+        + tf.nn.l2_loss(self.dec_b) / np.prod(dec_b_shape)) * 0.25
+
+  def _init(self):
+    self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
+    self._regularize_loss = self.regularizer()
+    self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
+    self._train = tf.train.AdamOptimizer().minimize(self._loss)
+
+    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
+    self._saver = tf.train.Saver(self._var_list)
+    self._sess.run(tf.initialize_variables(self._var_list))
 
 class LinearAutoencoder3D(BasicAutoencoder3D):
   def __init__(self, sess, input_shape, z_dim, activation=None, keep_prob=None):
@@ -88,17 +126,18 @@ class LinearAutoencoder3D(BasicAutoencoder3D):
     curr = tf.nn.xw_plus_b(curr, self.dec_W, self.dec_b)
     if activation :
       curr = activation(curr)
-
-    # Future : self.init() in BasicAutoencoder3D
     self._y = tf.reshape(curr, input_shape)
-    self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    self._regularize_loss = tf.nn.l2_loss(self.enc_W) + tf.nn.l2_loss(self.dec_W)
-    self._loss = self._reconstruct_loss + 0.0001 * self._regularize_loss # More
-    self._train = tf.train.AdamOptimizer().minimize(self._loss)
 
-    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
-    self._saver = tf.train.Saver(self._var_list)
-    self._sess.run(tf.initialize_variables(self._var_list))
+    # Future : remove after test
+    #self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
+    #self._regularize_loss = self.regularizer()
+    #self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
+    #self._train = tf.train.AdamOptimizer().minimize(self._loss)
+
+    #self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
+    #self._saver = tf.train.Saver(self._var_list)
+    #self._sess.run(tf.initialize_variables(self._var_list))
+    self._init()
 
 class ConvAutoencoder3D(BasicAutoencoder3D):
   def __init__(self, sess, input_shape, kernel, stride, 
@@ -153,17 +192,18 @@ class ConvAutoencoder3D(BasicAutoencoder3D):
     curr += self.dec_b
     if activation: 
       curr = activation(curr)
-
-    # Future : self.init(self._var_list) in BasicAutoencoder3D
     self._y = curr
-    self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    self._regularize_loss = tf.nn.l2_loss(self.enc_W) + tf.nn.l2_loss(self.dec_W)
-    self._loss = self._reconstruct_loss + 0.0001 * self._regularize_loss # More
-    self._train = tf.train.AdamOptimizer().minimize(self._loss)
 
-    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
-    self._saver = tf.train.Saver(self._var_list)
-    self._sess.run(tf.initialize_variables(self._var_list))
+    # Future : remove after test
+    #self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
+    #self._regularize_loss = self.regularizer()
+    #self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
+    #self._train = tf.train.AdamOptimizer().minimize(self._loss)
+
+    #self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
+    #self._saver = tf.train.Saver(self._var_list)
+    #self._sess.run(tf.initialize_variables(self._var_list))
+    self._init()
 
 class StackedConvAutoencoder3D(object):
   def __init__(self, sess, ae_list, z_dim=None, activation=tf.nn.tanh): 
@@ -178,6 +218,8 @@ class StackedConvAutoencoder3D(object):
 
     curr = self._x
 
+    self._latent_list = []
+
     """ Encoder """
     for ae in ae_list:
       if ae.__class__ is ConvAutoencoder3D:
@@ -191,6 +233,7 @@ class StackedConvAutoencoder3D(object):
         curr = tf.nn.xw_plus_b(curr, ae.enc_W, ae.enc_b)
         if ae.activation:
           curr = ae.activation(curr)
+      self._latent_list.append(curr)
 
     """ Latent code """
     self._z = curr
@@ -211,15 +254,20 @@ class StackedConvAutoencoder3D(object):
           curr = ae.activation(curr)
         curr = tf.reshape(curr, ae.input_shape)
 
-    self._y = curr 
+    self._regularize_loss = 0
+    for ae in ae_list:
+      self._regularize_loss += ae.regularizer()
+    self._regularize_loss /= float(len(ae_list))
+    self._regularize_loss *= reg_weight
 
+    self._y = curr 
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    self._loss = self._reconstruct_loss # More.
+    self._loss = self._reconstruct_loss + self._regularize_loss
     self._train = tf.train.AdamOptimizer().minimize(self._loss)
 
     self._sess.run(tf.initialize_all_variables())
   
-  def train_each_layer(self, data_generator, iteration=10000):
+  def pretrain(self, data_generator, iteration=0, l_loss=None):
     if not os.path.isdir("ckpt/"): 
       os.makedirs("ckpt/")
 
@@ -237,31 +285,33 @@ class StackedConvAutoencoder3D(object):
             data = data_generator.gen()
             data = self._get_nth_latent(l, data)
             loss = ae.train(data)
-            print "{} layer / {} iter / {}".format(l+1, i+1, loss)
-        else :
+            print("{} layer / {} iter / {}".format(l+1, i+1, loss))
+        elif l_loss:
           i = 0
           loss = 1.
-          while loss > 0.003:
+          while loss > l_loss:
             data = data_generator.gen()
             data = self._get_nth_latent(l, data)
             loss = ae.train(data)
-            print "{} layer / {} iter / {}".format(l+1, i+1, loss)
+            print("{} layer / {} iter / {}".format(l+1, i+1, loss))
             i += 1
         ae.save(file_path)
 
-  def fine_tuning(self, dg, iteration=10000):
+  def train(self, dg, iteration=0, f_loss=None):
     if iteration > 0 :
       for i in range(iteration):
         data = dg.gen()
         _, loss = self._sess.run([self._train, self._loss], {self._x:data})
-        print "{} iter / {}".format(i+1, loss)
-    else :
+        print( "{} iter / {}".format(i+1, loss))
+    elif f_loss :
       i = 0
       loss = 1.
-      while loss > 0.003:
+      while loss > f_loss:
         data = dg.gen()
-        _, loss = self._sess.run([self._train, self._loss], {self._x:data})
-        print "{} iter / {}".format(i+1, loss)
+        #_, loss = self._sess.run([self._train, self._loss], {self._x:data})
+        #print("{} iter / {}".format(i+1, loss))
+        _, loss, reg = self._sess.run([self._train, self._loss, self._regularize_loss], {self._x:data})
+        print("{} iter / {} ({})".format(i+1, loss, reg))
         i += 1
       
     self.save()
@@ -289,23 +339,26 @@ class StackedConvAutoencoder3D(object):
   def reconstruct(self, data):
     return self._sess.run(self._y, {self._x:data})
 
+  def get_latent(self, data):
+    return self._sess.run(self._z, {self._x:data})
+
   def _get_nth_latent(self, nth, data):
-    if nth == 0: return data
+    if nth == 0: 
+      return data
     else :
-      latent = data
-      for l, ae in enumerate(self._ae_list):
-        latent = ae.get_latent(latent)
-        if l+1 == nth: return latent
+      return self._sess.run(self._latent_list[nth-1], {self._x:data})
 
 class DataGenerator(object):
-  def __init__(self, filename, data_shape, output_shape, method='random', slide_step=1):
+  def __init__(self, filename, data_shape, output_shape, method='random', step=1, padding=False):
     """ 
     Args :
       filename : the name of raw volume file
       data_shape : a 3-d list of integers. (D x H x W)
       output_shape : Output shape of data from the generator.
                     a 5-d list of integers. (N x D x H x W x 1)
-      method : Sampling method. 'random' or 'slide'
+      method : Sampling method. 'random', 'slide' or 'grid'
+      step : step size for slide or grid method
+      padding : Flag for zero-padding to the volume.
     """
 
     with open(filename, 'rb') as f:
@@ -316,6 +369,13 @@ class DataGenerator(object):
     v_min, v_max = np.min(self.volume), np.max(self.volume)
     self.volume = (self.volume - v_min) / (v_max - v_min)
 
+    if padding :
+      self.volume = np.lib.pad(self.volume, 
+          ((output_shape[0]/2, output_shape[0]/2), 
+           (output_shape[1]/2, output_shape[1]/2), 
+           (output_shape[2]/2, output_shape[2]/2)),
+          mode='constant', constant_values=((0.,0.),(0.,0.),(0.,0.)))
+
     self._output_shape = output_shape
     self._data_shape = data_shape
     self._method = method
@@ -323,22 +383,22 @@ class DataGenerator(object):
       self._slide_d = 0
       self._slide_h = 0
       self._slide_w = 0
-      self._slide_step = slide_step
+      self._step = step
     elif self._method == 'grid':
-      self._slide_step = slide_step
+      self._step = step
       self._sample = np.empty([
-          (self._data_shape[0]/self._slide_step)*
-          (self._data_shape[1]/self._slide_step)*
-          (self._data_shape[2]/self._slide_step)]
+          (self._data_shape[0]/self._step)*
+          (self._data_shape[1]/self._step)*
+          (self._data_shape[2]/self._step)]
             + self._output_shape[1:])
       i = 0
       grid_index = [0,0,0]
       grid_index[0] = self._data_shape[0]-self._output_shape[1]
       grid_index[1] = self._data_shape[1]-self._output_shape[2]
       grid_index[2] = self._data_shape[2]-self._output_shape[3]
-      for d in range(0, grid_index[0], self._slide_step):
-        for h in range(0, grid_index[1], self._slide_step):
-          for w in range(0, grid_index[2], self._slide_step):
+      for d in range(0, grid_index[0], self._step):
+        for h in range(0, grid_index[1], self._step):
+          for w in range(0, grid_index[2], self._step):
             self._sample[i,:,:,:,0] = self.volume[
                 d:d+self._output_shape[1],
                 h:h+self._output_shape[2],
@@ -368,13 +428,13 @@ class DataGenerator(object):
             self._slide_d:self._slide_d+self.output_shape[1],
             self._slide_h:self._slide_h+self.output_shape[2],
             self._slide_w:self._slide_w+self.output_shape[3]]
-        self._slide_w += self._slide_step
+        self._slide_w += self._step
         if self._slide_w + self.output_shape[3] >= self._data_shape[2]:
           self._slide_w = 0
-          self._slide_h += self._slide_step
+          self._slide_h += self._step
         if self._slide_h + self.output_shape[2] >= self._data_shape[1]:
           self._slide_h = 0
-          self._slide_d += self._slide_step
+          self._slide_d += self._step
         if self._slide_d + self.output_shape[1] >= self._data_shape[0]:
           self._slide_d = 0
           self._slide_h = 0
@@ -382,8 +442,9 @@ class DataGenerator(object):
       np.random.shuffle(sample)
 
     elif self._method == 'grid':
-      np.random.shuffle(self._sample)
-      sample = self._sample[:self._output_shape[0],:,:,:,:]
+      rand_idx = np.random.choice(
+        self._sample.shape[0], self._output_shape[0], replace=False)
+      sample = self._sample[rand_idx,:,:,:,:]
     return sample
 
   def crop(self, indices):
@@ -399,7 +460,7 @@ class DataGenerator(object):
           index[1]:index[1]+self.output_shape[2],
           index[2]:index[2]+self.output_shape[3]]
     return sample
-
+  
   @property
   def output_shape(self):
     return self._output_shape
