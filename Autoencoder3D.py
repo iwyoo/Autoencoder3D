@@ -128,15 +128,6 @@ class LinearAutoencoder3D(BasicAutoencoder3D):
       curr = activation(curr)
     self._y = tf.reshape(curr, input_shape)
 
-    # Future : remove after test
-    #self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    #self._regularize_loss = self.regularizer()
-    #self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
-    #self._train = tf.train.AdamOptimizer().minimize(self._loss)
-
-    #self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
-    #self._saver = tf.train.Saver(self._var_list)
-    #self._sess.run(tf.initialize_variables(self._var_list))
     self._init()
 
 class ConvAutoencoder3D(BasicAutoencoder3D):
@@ -194,15 +185,6 @@ class ConvAutoencoder3D(BasicAutoencoder3D):
       curr = activation(curr)
     self._y = curr
 
-    # Future : remove after test
-    #self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
-    #self._regularize_loss = self.regularizer()
-    #self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
-    #self._train = tf.train.AdamOptimizer().minimize(self._loss)
-
-    #self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
-    #self._saver = tf.train.Saver(self._var_list)
-    #self._sess.run(tf.initialize_variables(self._var_list))
     self._init()
 
 class StackedConvAutoencoder3D(object):
