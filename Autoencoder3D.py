@@ -73,12 +73,13 @@ class BasicAutoencoder3D(object):
         + tf.nn.l2_loss(self.dec_b) / np.prod(dec_b_shape)) * 0.25
 
   def _init(self):
+    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
+
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
     self._regularize_loss = self.regularizer()
     self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
-    self._train = tf.train.AdamOptimizer().minimize(self._loss)
+    self._train = tf.train.AdamOptimizer().minimize(self._loss, var_list=self._var_list)
 
-    self._var_list = [self.enc_W, self.enc_b, self.dec_W, self.dec_b]
     self._saver = tf.train.Saver(self._var_list)
     self._sess.run(tf.initialize_variables(self._var_list))
 
