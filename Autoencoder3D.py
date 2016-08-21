@@ -2,10 +2,10 @@ import os
 import numpy as np
 import tensorflow as tf
 
-#Future : Denoising option
+#Future : Dropout option
 
 # constants
-reg_weight = 0.01
+reg_weight = 0.0001
 
 class BasicAutoencoder3D(object):
   """ 
@@ -78,7 +78,7 @@ class BasicAutoencoder3D(object):
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
     self._regularize_loss = self.regularizer()
     self._loss = self._reconstruct_loss + reg_weight * self._regularize_loss
-    self._train = tf.train.AdamOptimizer().minimize(self._loss, var_list=self._var_list)
+    self._train = tf.train.AdamOptimizer(learning_rate=2e-4,beta1=0.5).minimize(self._loss)
 
     self._saver = tf.train.Saver(self._var_list)
     self._sess.run(tf.initialize_variables(self._var_list))
@@ -200,7 +200,6 @@ class StackedConvAutoencoder3D(object):
     self._x = tf.placeholder(tf.float32, self._ae_list[0].input_shape)
 
     curr = self._x
-
     self._latent_list = []
 
     """ Encoder """
@@ -223,7 +222,7 @@ class StackedConvAutoencoder3D(object):
     self.z_shape = self._z.get_shape().as_list()
     
     """ Decoder """
-    for ae in ae_list[::-1]:
+    for i, ae in enumerate(ae_list[::-1]):
       if ae.__class__ is ConvAutoencoder3D:
         curr = tf.nn.conv3d_transpose(
           curr, ae.dec_W, output_shape=ae.input_shape, 
@@ -246,7 +245,7 @@ class StackedConvAutoencoder3D(object):
     self._y = curr 
     self._reconstruct_loss = tf.reduce_mean(tf.square(self._x - self._y))
     self._loss = self._reconstruct_loss + self._regularize_loss
-    self._train = tf.train.AdamOptimizer().minimize(self._loss)
+    self._train = tf.train.AdamOptimizer(learning_rate=2e-4,beta1=0.5).minimize(self._loss)
 
     self._sess.run(tf.initialize_all_variables())
   
@@ -291,10 +290,10 @@ class StackedConvAutoencoder3D(object):
       loss = 1.
       while loss > f_loss:
         data = dg.gen()
-        #_, loss = self._sess.run([self._train, self._loss], {self._x:data})
-        #print("{} iter / {}".format(i+1, loss))
-        _, loss, reg = self._sess.run([self._train, self._loss, self._regularize_loss], {self._x:data})
-        print("{} iter / {} ({})".format(i+1, loss, reg))
+        #_, loss, reg = self._sess.run([self._train, self._loss, self._regularize_loss], {self._x:data})
+        #print("{} iter / {} ({})".format(i+1, loss, reg))
+        _, loss = self._sess.run([self._train, self._loss], {self._x:data})
+        print("{} iter / {}".format(i+1, loss))
         i += 1
       
     self.save()
@@ -310,6 +309,13 @@ class StackedConvAutoencoder3D(object):
       file_path = dir_path+"model.ckpt"
       ae.save(file_path)
 
+    if self._batch_norm:
+      dir_path = "ckpt/batch_norm/"
+      if not os.path.isdir(dir_path): 
+        os.makedirs(dir_path)
+      file_path = dir_path+"model.ckpt"
+      self._saver.save(self._sess, file_path)
+
   def load(self):
     for l, ae in enumerate(self._ae_list):
       dir_path = "ckpt/ckpt_{}/".format(l+1)
@@ -318,6 +324,13 @@ class StackedConvAutoencoder3D(object):
         ae.load(file_path)
       else : 
         raise IOError("No ckpt_{}/model.ckpt file".format(l+1))
+
+    if self._batch_norm:
+      dir_path = "ckpt/batch_norm/"
+      if not os.path.isdir(dir_path): 
+        self._saver.load(self._sess, "ckpt/batch_norm/")
+      else : 
+        raise IOError("No ckpt/batch_norm/model.ckpt file")
 
   def reconstruct(self, data):
     return self._sess.run(self._y, {self._x:data})
